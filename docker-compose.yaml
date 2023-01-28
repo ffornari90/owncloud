@@ -24,7 +24,15 @@ services:
         done && for f in $$(find certificates/ -type f -name \"*.pem\");
         do cat $$f >> /certs/ca-certificates.crt; done &&
         wget \"https://crt.sh/?d=2475254782\" -O /certs/geant-ov-rsa-ca.crt &&
+        wget \"https://letsencrypt.org/certs/staging/letsencrypt-stg-int-r3.pem\" -O /certs/letsencrypt-stg-int-r3.crt &&
+        wget \"https://letsencrypt.org/certs/staging/letsencrypt-stg-int-e1.pem\" -O /certs/letsencrypt-stg-int-e1.crt &&
+        wget \"https://letsencrypt.org/certs/staging/letsencrypt-stg-root-x1.pem\" -O /certs/letsencrypt-stg-root-x1.crt &&
+        wget \"https://letsencrypt.org/certs/staging/letsencrypt-stg-root-x2.pem\" -O /certs/letsencrypt-stg-root-x2.crt &&
         cat /certs/geant-ov-rsa-ca.crt >> /certs/ca-certificates.crt &&
+        cat /certs/letsencrypt-stg-int-r3.crt >> /certs/ca-certificates.crt &&
+        cat /certs/letsencrypt-stg-int-e1.crt >> /certs/ca-certificates.crt &&
+        cat /certs/letsencrypt-stg-root-x1.crt >> /certs/ca-certificates.crt &&
+        cat /certs/letsencrypt-stg-root-x2.crt >> /certs/ca-certificates.crt &&
         nc -l -p 1337
       "
     volumes:
