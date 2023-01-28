@@ -1,0 +1,161 @@
+version: "3"
+
+volumes:
+  files:
+    driver: local
+  mysql:
+    driver: local
+  redis:
+    driver: local
+  trust-volume:
+    driver: local
+
+networks:
+  net:
+
+services:
+  trust:
+    image: alpine
+    command: /bin/sh -c "
+        wget \"http://repository.egi.eu/sw/production/cas/1/current/tgz/\" &&
+        mkdir tgz && for tgz in $$(cat index.html | awk -F'\"' '{print $$2}' | grep tar.gz);
+        do wget http://repository.egi.eu/sw/production/cas/1/current/tgz/$$tgz -O tgz/$$tgz;
+        done && for tgz in $$(ls tgz/); do tar xzf tgz/$$tgz --strip-components=1 -C certificates/;
+        done && for f in $$(find certificates/ -type f -name \"*.pem\");
+        do cat $$f >> /certs/ca-certificates.crt; done &&
+        wget \"https://crt.sh/?d=2475254782\" -O /certs/geant-ov-rsa-ca.crt &&
+        cat /certs/geant-ov-rsa-ca.crt >> /certs/ca-certificates.crt &&
+        nc -l -p 1337
+      "
+    volumes:
+      - trust-volume:/certs
+    networks:
+      - net
+
+  proxy:
+    container_name: proxy
+    image: harbor.cloud.infn.it/cache/library/traefik:${TRAEFIK_VERSION}
+    volumes:
+      - letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /opt/storageservice/traefik:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    command: /bin/sh -c "
+        while ! nc -z owncloud_server 8080; do sleep 1; done
+        && traefik
+        --log.level=DEBUG
+        --api.insecure=true
+        --providers.docker=true
+        --providers.docker.exposedbydefault=false
+        --providers.file.directory=/config
+        --providers.file.watch=true
+        --entrypoints.web.address=:80
+        --entrypoints.websecure.address=:443
+        --entrypoints.web.http.redirections.entryPoint.to=websecure
+        --certificatesresolvers.myhttpchallenge.acme.httpchallenge=true
+        --certificatesresolvers.myhttpchallenge.acme.httpchallenge.entrypoint=web
+        --certificatesresolvers.myhttpchallenge.acme.email=${CONTACT_EMAIL}
+        --certificatesresolvers.myhttpchallenge.acme.storage=/letsencrypt/acme.json
+        --certificatesresolvers.myhttpchallenge.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+      "
+    networks:
+      - net
+
+  owncloud:
+    image: owncloud/server:${OWNCLOUD_VERSION}
+    container_name: owncloud_server
+    restart: always
+    depends_on:
+      - trust
+      - mariadb
+      - redis
+    extra_hosts:
+      - "${IAM_HOST}:${IAM_IP}"
+      - "${S3_HOST}:${S3_IP}"
+    entrypoint: /bin/sh
+    command: -c "
+        curl \"https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh\"
+        -o wait-for-it.sh && chmod +x wait-for-it.sh &&
+        ./wait-for-it.sh -t 0 trust:1337 &&
+        /usr/bin/entrypoint /usr/bin/owncloud server
+      "
+    environment:
+      - OWNCLOUD_STORAGE=s3
+      - OWNCLOUD_S3_ENDPOINT=${S3_ENDPOINT}
+      - OWNCLOUD_S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - OWNCLOUD_S3_SECRET_KEY=${S3_SECRET_KEY}
+      - OWNCLOUD_OIDC_PROVIDER=${OIDC_PROVIDER}
+      - OWNCLOUD_OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
+      - OWNCLOUD_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
+      - OWNCLOUD_DOMAIN=${HOST_PUBLIC_IP}.myip.cloud.infn.it
+      - OWNCLOUD_TRUSTED_DOMAINS=${HOST_PUBLIC_IP}.myip.cloud.infn.it
+      - OWNCLOUD_DB_TYPE=mysql
+      - OWNCLOUD_DB_NAME=owncloud
+      - OWNCLOUD_DB_USERNAME=owncloud
+      - OWNCLOUD_DB_PASSWORD=owncloud
+      - OWNCLOUD_DB_HOST=mariadb
+      - OWNCLOUD_ADMIN_USERNAME=${ADMIN_USERNAME}
+      - OWNCLOUD_ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - OWNCLOUD_MYSQL_UTF8MB4=true
+      - OWNCLOUD_REDIS_ENABLED=true
+      - OWNCLOUD_REDIS_HOST=redis
+    healthcheck:
+      test: ["CMD", "/usr/bin/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - files:/mnt/data
+      - trust-volume:/etc/ssl/certs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.nextcloud-redirect-ssl.redirectscheme.scheme=https"
+      - "traefik.http.routers.nextcloud-nossl.middlewares=nextcloud-redirect-ssl"
+      - "traefik.http.routers.nextcloud-nossl.rule=Host(`${HOST_PUBLIC_IP}.myip.cloud.infn.it`)"
+      - "traefik.http.routers.nextcloud-nossl.entrypoints=web"
+      - "traefik.http.routers.nextcloud.rule=Host(`${HOST_PUBLIC_IP}.myip.cloud.infn.it`)"
+      - "traefik.http.routers.nextcloud.entrypoints=websecure"
+      - "traefik.http.routers.nextcloud.tls.certresolver=myhttpchallenge"
+      - "traefik.http.routers.nextcloud.tls=true"
+      - "traefik.http.services.nextcloud.loadbalancer.server.port=8080"
+    networks:
+      - net
+
+  mariadb:
+    image: mariadb:10.6 # minimum required ownCloud version is 10.9
+    container_name: owncloud_mariadb
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=owncloud
+      - MYSQL_USER=owncloud
+      - MYSQL_PASSWORD=owncloud
+      - MYSQL_DATABASE=owncloud
+    command: ["--max-allowed-packet=128M", "--innodb-log-file-size=64M"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-u", "root", "--password=owncloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - mysql:/var/lib/mysql
+    networks:
+      - net
+
+  redis:
+    image: redis:6
+    container_name: owncloud_redis
+    restart: always
+    command: ["--databases", "1"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis:/data
+    networks:
+      - net
