@@ -9,6 +9,8 @@ volumes:
     driver: local
   trust-volume:
     driver: local
+  letsencrypt:
+    driver: local
 
 networks:
   net:
