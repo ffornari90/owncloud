@@ -73,11 +73,6 @@ services:
     networks:
       - net
 
-#        /usr/bin/owncloud && kill $$(pgrep cron) &&
-#        su - www-data -c '/var/www/owncloud/occ app:enable files_primary_s3' &&
-#        su - www-data -c '/var/www/owncloud/occ config:app:set openidconnect openid-connect --value='\"'\"'{\"auto-provision\":{\"enabled\":true,\"email-claim\":\"email\",\"display-name-claim\":\"name\"},\"provider-url\":\"'$$OWNCLOUD_OIDC_PROVIDER'\",\"client-id\":\"'$$OWNCLOUD_OIDC_CLIENT_ID'\",\"client-secret\":\"'$$OWNCLOUD_OIDC_CLIENT_SECRET'\",\"loginButtonName\":\"Login via IAM\"}'\"'\"'' &&
-#        su - www-data -c '/var/www/owncloud/occ app:enable openidconnect' &&
-#        su - www-data -c '/var/www/owncloud/occ app:enable oauth2' &&
   owncloud:
     image: owncloud/server:${OWNCLOUD_VERSION}
     container_name: owncloud_server
@@ -96,9 +91,18 @@ services:
         wget \"https://github.com/owncloud/files_primary_s3/releases/download/v1.4.0/files_primary_s3-1.4.0.tar.gz\" &&
         tar -xf files_primary_s3-1.4.0.tar.gz -C /var/www/owncloud/apps/ &&
         rm files_primary_s3-1.4.0.tar.gz && chsh -s /bin/bash www-data &&
+        /usr/bin/owncloud && kill $$(pgrep cron) &&
+        su - www-data -c '/var/www/owncloud/occ config:app:set openidconnect openid-connect --value='\"'\"'{\"auto-provision\":{\"enabled\":true,\"email-claim\":\"email\",\"display-name-claim\":\"name\"},\"provider-url\":\"'$$OWNCLOUD_OIDC_PROVIDER'\",\"client-id\":\"'$$OWNCLOUD_OIDC_CLIENT_ID'\",\"client-secret\":\"'$$OWNCLOUD_OIDC_CLIENT_SECRET'\",\"loginButtonName\":\"Login via IAM\",\"autoRedirectOnLoginPage\":false,\"mode\":\"email\",\"search-attribute\":\"preferred_username\"}'\"'\"'' &&
+        su - www-data -c '/var/www/owncloud/occ app:enable openidconnect' &&
+        su - www-data -c '/var/www/owncloud/occ config:app:set oauth2 client_id --value='$$OWNCLOUD_OIDC_CLIENT_ID &&
+        su - www-data -c '/var/www/owncloud/occ config:app:set oauth2 client_secret --value='$$OWNCLOUD_OIDC_CLIENT_SECRET &&
+        su - www-data -c '/var/www/owncloud/occ config:app:set oauth2 authorization_endpoint --value='$$OWNCLOUD_OIDC_AUTHORIZATION_ENDPOINT &&
+        su - www-data -c '/var/www/owncloud/occ config:app:set oauth2 token_endpoint --value='$$OWNCLOUD_OIDC_TOKEN_ENDPOINT &&
+        su - www-data -c '/var/www/owncloud/occ app:enable oauth2' &&
         /usr/bin/entrypoint /usr/bin/owncloud server
       "
     environment:
+      - OWNCLOUD_HTTP_COOKIE_SAMESITE=${HTTP_COOKIE_SAMESITE}
       - OWNCLOUD_OBJECTSTORE_ENABLED=${S3_ENABLED}
       - OWNCLOUD_OBJECTSTORE_CLASS=${S3_CLASS}
       - OWNCLOUD_OBJECTSTORE_BUCKET=${S3_BUCKET}
@@ -111,6 +115,8 @@ services:
       - OWNCLOUD_OIDC_PROVIDER=${OIDC_PROVIDER}
       - OWNCLOUD_OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
       - OWNCLOUD_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
+      - OWNCLOUD_OIDC_AUTHORIZATION_ENDPOINT=${OIDC_AUTHORIZATION_ENDPOINT}
+      - OWNCLOUD_OIDC_TOKEN_ENDPOINT=${OIDC_TOKEN_ENDPOINT}
       - OWNCLOUD_DOMAIN=${HOST_PUBLIC_IP}.myip.cloud.infn.it
       - OWNCLOUD_TRUSTED_DOMAINS=${HOST_PUBLIC_IP}.myip.cloud.infn.it
       - OWNCLOUD_DB_TYPE=mysql
