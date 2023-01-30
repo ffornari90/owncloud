@@ -22,15 +22,13 @@ services:
         wget \"http://repository.egi.eu/sw/production/cas/1/current/tgz/\" &&
         mkdir tgz && for tgz in $$(cat index.html | awk -F'\"' '{print $$2}' | grep tar.gz);
         do wget http://repository.egi.eu/sw/production/cas/1/current/tgz/$$tgz -O tgz/$$tgz;
-        done && for tgz in $$(ls tgz/); do tar xzf tgz/$$tgz --strip-components=1 -C certificates/;
-        done && for f in $$(find certificates/ -type f -name \"*.pem\");
+        done && for tgz in $$(ls tgz/); do tar xzf tgz/$$tgz --strip-components=1 -C certs/;
+        done && for f in $$(find certs/ -type f -name \"*.pem\");
         do cat $$f >> /certs/ca-certificates.crt; done &&
-        wget \"https://crt.sh/?d=2475254782\" -O /certs/geant-ov-rsa-ca.crt &&
         wget \"https://letsencrypt.org/certs/staging/letsencrypt-stg-int-r3.pem\" -O /certs/letsencrypt-stg-int-r3.crt &&
         wget \"https://letsencrypt.org/certs/staging/letsencrypt-stg-int-e1.pem\" -O /certs/letsencrypt-stg-int-e1.crt &&
         wget \"https://letsencrypt.org/certs/staging/letsencrypt-stg-root-x1.pem\" -O /certs/letsencrypt-stg-root-x1.crt &&
         wget \"https://letsencrypt.org/certs/staging/letsencrypt-stg-root-x2.pem\" -O /certs/letsencrypt-stg-root-x2.crt &&
-        cat /certs/geant-ov-rsa-ca.crt >> /certs/ca-certificates.crt &&
         cat /certs/letsencrypt-stg-int-r3.crt >> /certs/ca-certificates.crt &&
         cat /certs/letsencrypt-stg-int-e1.crt >> /certs/ca-certificates.crt &&
         cat /certs/letsencrypt-stg-root-x1.crt >> /certs/ca-certificates.crt &&
@@ -75,6 +73,11 @@ services:
     networks:
       - net
 
+#        /usr/bin/owncloud && kill $$(pgrep cron) &&
+#        su - www-data -c '/var/www/owncloud/occ app:enable files_primary_s3' &&
+#        su - www-data -c '/var/www/owncloud/occ config:app:set openidconnect openid-connect --value='\"'\"'{\"auto-provision\":{\"enabled\":true,\"email-claim\":\"email\",\"display-name-claim\":\"name\"},\"provider-url\":\"'$$OWNCLOUD_OIDC_PROVIDER'\",\"client-id\":\"'$$OWNCLOUD_OIDC_CLIENT_ID'\",\"client-secret\":\"'$$OWNCLOUD_OIDC_CLIENT_SECRET'\",\"loginButtonName\":\"Login via IAM\"}'\"'\"'' &&
+#        su - www-data -c '/var/www/owncloud/occ app:enable openidconnect' &&
+#        su - www-data -c '/var/www/owncloud/occ app:enable oauth2' &&
   owncloud:
     image: owncloud/server:${OWNCLOUD_VERSION}
     container_name: owncloud_server
@@ -89,15 +92,22 @@ services:
     entrypoint: /bin/sh
     command: -c "
         curl \"https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh\"
-        -o wait-for-it.sh && chmod +x wait-for-it.sh &&
-        ./wait-for-it.sh -t 0 trust:1337 &&
+        -o wait-for-it.sh && chmod +x wait-for-it.sh && ./wait-for-it.sh -t 0 trust:1337 &&
+        wget \"https://github.com/owncloud/files_primary_s3/releases/download/v1.4.0/files_primary_s3-1.4.0.tar.gz\" &&
+        tar -xf files_primary_s3-1.4.0.tar.gz -C /var/www/owncloud/apps/ &&
+        rm files_primary_s3-1.4.0.tar.gz && chsh -s /bin/bash www-data &&
         /usr/bin/entrypoint /usr/bin/owncloud server
       "
     environment:
-      - OWNCLOUD_STORAGE=s3
-      - OWNCLOUD_S3_ENDPOINT=${S3_ENDPOINT}
-      - OWNCLOUD_S3_ACCESS_KEY=${S3_ACCESS_KEY}
-      - OWNCLOUD_S3_SECRET_KEY=${S3_SECRET_KEY}
+      - OWNCLOUD_OBJECTSTORE_ENABLED=${S3_ENABLED}
+      - OWNCLOUD_OBJECTSTORE_CLASS=${S3_CLASS}
+      - OWNCLOUD_OBJECTSTORE_BUCKET=${S3_BUCKET}
+      - OWNCLOUD_OBJECTSTORE_ENDPOINT=${S3_ENDPOINT}
+      - OWNCLOUD_OBJECTSTORE_KEY=${S3_ACCESS_KEY}
+      - OWNCLOUD_OBJECTSTORE_SECRET=${S3_SECRET_KEY}
+      - OWNCLOUD_OBJECTSTORE_REGION=${S3_REGION}
+      - OWNCLOUD_OBJECTSTORE_VERSION=${S3_VERSION}
+      - OWNCLOUD_OBJECTSTORE_PATHSTYLE=${S3_PATHSTYLE}
       - OWNCLOUD_OIDC_PROVIDER=${OIDC_PROVIDER}
       - OWNCLOUD_OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
       - OWNCLOUD_OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
